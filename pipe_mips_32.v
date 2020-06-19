@@ -1,131 +1,124 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
+// company: 
+// engineer: 
 // 
-// Create Date: 28.05.2020 14:51:32
-// Design Name: 
-// Module Name: pipe_mips_32
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
+// create date: 2.05.2020 14:51:32
+// design name: 
+// module name: pipe_mips_32
+// project name: 
+// target devices: 
+// tool versions: 
+// description: 
 // 
-// Dependencies: 
+// dependencies: 
 // 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
+// revision:
+// revision 0.01 - file created
+// additional comments:
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
 
-module pipe_mips_32(clk1, clk2);
-	parameter add=6'b000000, addi=6'b001010, sub=6'b000001, subi=6'b001011, lw=6'b001000, sw=6'b001001, slti=6'b001100, and=6'b000010, or=6'b000011, slt=6'b000100, mul=6'b000101, HLT=6'b111111, bneqz=6'b001101, beqz=6'b001110;
-	parameter RR_ALU=3'b000, RM_ALU=3'b001, LOAD=3'b010, STORE=3'b011, BRANCH=3'b100, HALT=3'b101;					
-	reg [31:0] PC, IF_ID_NPC, IF_ID_IR, ID_EX_IR, ID_EX_NPC, ID_EX_A, ID_EX_B, ID_EX_Imm;
-	reg [2:0]  ID_EX_type, EX_MEM_type, MEM_WB_type;
-	reg [31:0] EX_MEM_IR, EX_MEM_ALUOut, EX_MEM_B, MEM_WB_IR, MEM_WB_ALUOut, MEM_WB_LMD;
-	reg 	   EX_MEM_cond;
-	reg [31:0] Reg [0:31];		
-	reg [31:0] Mem [0:1023];	
+module pipelined_mips_32(clk1, clk2);
+	parameter zero=6'b000000, add=6'b000001, addi=6'b000001, sub=6'b000010, hlt=6'b111111, subi=6'b000010, lw=6'b000011, sw=6'b000100, slti=6'b000011, andr=6'b000101, orr=6'b000110, slt=6'b000111, mul=6'b001000, bneqz=6'b001101, beqz=6'b001110, rr_alu=3'b000, rm_alu=3'b001, load=3'b010, store=3'b011, branch=3'b100, halt=3'b101;					
+	reg [31:0] pc, if_id_npc, if_id_reg, id_ex_reg, id_ex_npc, id_ex_a, id_ex_b, id_ex_imm, ex_mem_reg, ex_mem_alu, ex_mem_b, mem_wb_reg, mem_wb_aluout, mem_wb_lmd;
+	reg [2:0]  id_ex_type, ex_mem_type, mem_wb_type; 
+	reg condition;
+	reg [31:0] register [0:31];
+	reg [31:0] mem [0:1023];		
 	input clk1, clk2;				
-	reg halt, branch_taken;							
-	always @ (posedge clk1)
-		if(halt == 0)
+	reg ishalt, branch_taken;							
+	always @ (posedge clk1) //Instruction fetch happens here
+		if(ishalt == 0)
 		begin
-			if(((EX_MEM_IR[31:26] == beqz) && (EX_MEM_cond == 1)) || ((EX_MEM_IR[31:26] == bneqz) && (EX_MEM_cond == 0)))
+			if(((ex_mem_reg[31:26] == beqz) && (condition == 1)) || ((ex_mem_reg[31:26] == bneqz) && (condition == 0)))
 			begin
-				IF_ID_IR 	<= #2 Mem[EX_MEM_ALUOut];
-				branch_taken	<= #2 1'b1;
-				IF_ID_NPC	<= #2 EX_MEM_ALUOut + 1;
-				PC		<= #2 EX_MEM_ALUOut + 1;
+				if_id_reg 	<= #5 mem[ex_mem_alu];
+				branch_taken	<= #5 1'b1;
+				if_id_npc	<= #5 ex_mem_alu + 1;
+				pc		<= #5 ex_mem_alu + 1;
 			end
 			else begin
-				IF_ID_IR	<= #2 Mem[PC];
-				IF_ID_NPC	<= #2 PC + 1;
-				PC		<= #2 PC + 1;
+				if_id_reg	<= #5 mem[pc];
+				if_id_npc	<= #5 pc + 1;
+				pc		<= #5 pc + 1;
 			end
 		end
-	//ID Stage
-	always @ (posedge clk2)
-		if(halt == 0)
+	always @ (posedge clk2) //Instruction decode happens here
+		if(ishalt == 0)
 		begin
-			if (IF_ID_IR[25:21] == 5'b00000) ID_EX_A <= 0;
-			else ID_EX_A <= #2 Reg[IF_ID_IR[25:21]];
-			if (IF_ID_IR[20:16] == 5'b00000) ID_EX_B <= 0;
-			else ID_EX_B <= #2 Reg[IF_ID_IR[20:16]];
-			ID_EX_NPC 		<= #2 IF_ID_NPC;
-			ID_EX_IR		<= #2 IF_ID_IR;
-			ID_EX_Imm		<= #2 {{16{IF_ID_IR[15]}},{IF_ID_IR[15:0]}};
-			
-			case(IF_ID_IR[31:26])
-				add,sub,and,or,slt,mul:	ID_EX_type <= #2 RR_ALU;
-				addi,subi,slti	      :	ID_EX_type <= #2 RM_ALU;
-				lw		      : ID_EX_type <= #2 LOAD;
-				sw		      :	ID_EX_type <= #2 STORE;
-				bneqz, beqz	      : ID_EX_type <= #2 BRANCH;
-				HLT		      : ID_EX_type <= #2 HALT;
-				default		      : ID_EX_type <= #2 HALT; 		//Invalid Opcode
+			case(if_id_reg[31:26])
+				zero: id_ex_type <= #5 rr_alu; //Here we set the type of instruction
+				addi,subi,slti	      :	id_ex_type <= #5 rm_alu;
+				bneqz, beqz	      : id_ex_type <= #5 branch;
+				lw		      : id_ex_type <= #5 load;
+				sw		      :	id_ex_type <= #5 store;
+				default		      : id_ex_type <= #5 hlt; 		
  			endcase
+			if (if_id_reg[25:21] == 5'b00000) id_ex_a <= 0; //Check the Rs value and assign to 0 if its R0
+			else id_ex_a <= #5 register[if_id_reg[25:21]];
+			if (if_id_reg[20:16] == 5'b00000) id_ex_b <= 0; //Check the Rt value and assign to 0 if its R0
+			else id_ex_b <= #5 register[if_id_reg[20:16]];
+			id_ex_npc 		<= #5 if_id_npc;  //Transfer the next program counter value
+			id_ex_reg		<= #5 if_id_reg;  //Transfer the instruction register value
+			id_ex_imm		<= #5 {{16{if_id_reg[15]}},{if_id_reg[15:0]}}; //Extended the operand
 		end
-	//EX Stage
 	always @ (posedge clk1)
-		if(halt == 0)
+		if(ishalt == 0)
 		begin 
-			EX_MEM_type 	<= #2 ID_EX_type;
-			EX_MEM_IR	<= #2 ID_EX_IR;
-			branch_taken	<= #2 0;
-
-		case(ID_EX_type)	
-			RR_ALU:		begin
-					case(ID_EX_IR[31:26]) //OPCODE
-						add: 	EX_MEM_ALUOut <= #2 ID_EX_A + ID_EX_B;
-						sub: 	EX_MEM_ALUOut <= #2 ID_EX_A - ID_EX_B;
-						mul: 	EX_MEM_ALUOut <= #2 ID_EX_A * ID_EX_B;
-						and: 	EX_MEM_ALUOut <= #2 ID_EX_A & ID_EX_B;
-						or: 	EX_MEM_ALUOut <= #2 ID_EX_A | ID_EX_B;
-						slt: 	EX_MEM_ALUOut <= #2 ID_EX_A < ID_EX_B;
-						default:EX_MEM_ALUOut <= #2 32'hxxxxxxxx;
+			ex_mem_type 	<= #5 id_ex_type;
+			ex_mem_reg	<= #5 id_ex_reg;
+			branch_taken	<= #5 0;
+		case(id_ex_type)	
+			rr_alu:		begin
+					case(id_ex_reg[5:0])  //Alu instructions where Function parameter defines the value
+						add: 	ex_mem_alu <= #5 id_ex_a + id_ex_b;
+						sub: 	ex_mem_alu <= #5 id_ex_a - id_ex_b;
+						mul: 	ex_mem_alu <= #5 id_ex_a * id_ex_b;
+						andr: 	ex_mem_alu <= #5 id_ex_a & id_ex_b;
+						orr: 	ex_mem_alu <= #5 id_ex_a | id_ex_b;
+						slt: 	ex_mem_alu <= #5 id_ex_a < id_ex_b;
+						default:ex_mem_alu <= #5 32'hxxxxxxxx;
 					endcase
 					end
-			RM_ALU:		begin
-					case(ID_EX_IR[31:26]) //OPCODE
-						addi: 	EX_MEM_ALUOut <= #2 ID_EX_A + ID_EX_Imm;
-						subi: 	EX_MEM_ALUOut <= #2 ID_EX_A - ID_EX_Imm;
-						slti: 	EX_MEM_ALUOut <= #2 ID_EX_A < ID_EX_Imm;
-						default:EX_MEM_ALUOut <= #2 32'hxxxxxxxx;
+			rm_alu:		begin
+					case(id_ex_reg[31:26]) 
+						addi: 	ex_mem_alu <= #5 id_ex_a + id_ex_imm;
+						subi: 	ex_mem_alu <= #5 id_ex_a - id_ex_imm;
+						slti: 	ex_mem_alu <= #5 id_ex_a < id_ex_imm;
+						default:ex_mem_alu <= #5 32'hxxxxxxxx;
 					endcase
 					end
-			LOAD,STORE:	begin
-						EX_MEM_ALUOut	<= #2 ID_EX_A + ID_EX_Imm;
-						EX_MEM_B	<= #2 ID_EX_B;
+			load,store:	begin
+						ex_mem_alu	<= #5 id_ex_a + id_ex_imm;
+						ex_mem_b	<= #5 id_ex_b;
 					end
-			BRANCH:		begin
-						EX_MEM_ALUOut 	<= #2 ID_EX_NPC + ID_EX_Imm;
-						EX_MEM_cond 	<= #2 (ID_EX_A == 0);
+			branch:		begin
+						ex_mem_alu 	<= #5 id_ex_npc + id_ex_imm;
+						condition 	<= #5 (id_ex_a == 0);
 					end		
 		endcase
 		end
 	always @ (posedge clk2)
-		if(halt == 0)
+		if(ishalt == 0)
 		begin
-			MEM_WB_type	<= #2 EX_MEM_type;
-			MEM_WB_IR	<= #2 EX_MEM_IR;
-		case(EX_MEM_type)
-			RR_ALU, RM_ALU:	MEM_WB_ALUOut 	<= #2 EX_MEM_ALUOut;
-			LOAD:		MEM_WB_LMD	<= #2 Mem[EX_MEM_ALUOut];
-			STORE:		if(branch_taken == 0) Mem[EX_MEM_ALUOut] <= #2 EX_MEM_B;
+			mem_wb_type	<= #5 ex_mem_type;
+			mem_wb_reg	<= #5 ex_mem_reg;
+		case(ex_mem_type)
+			rr_alu, rm_alu:	mem_wb_aluout 	<= #5 ex_mem_alu;
+			load:	mem_wb_lmd	<= #5 mem[ex_mem_alu];
+			store:	if(branch_taken == 0) mem[ex_mem_alu] <= #5 ex_mem_b;
 		endcase
 		end
 	always @ (posedge clk1)
 		begin
 		if(branch_taken == 0)				
-		case(MEM_WB_type)
-			RR_ALU:		Reg[MEM_WB_IR[15:11]]	<= #2 MEM_WB_ALUOut; 	
-			RM_ALU:		Reg[MEM_WB_IR[20:16]]	<= #2 MEM_WB_ALUOut; 
-			LOAD:		Reg[MEM_WB_IR[20:16]]	<= #2 MEM_WB_LMD; 	
-			HALT:		halt			<= #2 1'b1;
+		case(mem_wb_type)
+			rr_alu:		register[mem_wb_reg[15:11]]	<= #5 mem_wb_aluout; 	//write back if branch is not taken
+			rm_alu:		register[mem_wb_reg[20:16]]	<= #5 mem_wb_aluout; 
+			load:		register[mem_wb_reg[20:16]]	<= #5 mem_wb_lmd; 	
+			halt:		ishalt <= #5 1'b1;
 		endcase
 		end	
 endmodule
